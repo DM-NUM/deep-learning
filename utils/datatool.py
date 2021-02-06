@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms.functional as F
 from matplotlib import pyplot as plt
+import torchvision
 
 
 # 处理数据和标签，方便写到DataLoader，将数据变化成可迭代类型
@@ -37,15 +38,17 @@ def load_mnist(path, kind='train'):
     with gzip.open(images_path, 'rb') as imgpath:
         images = torch.from_numpy(np.frombuffer(imgpath.read(), dtype=np.uint8,
                                offset=16).reshape(-1, 1, 28, 28)).float().div(255)
-
     return images, labels
 
 # 定义好参与模型的数据
-def set_dataloader(x, y , mini_batch):
+def set_dataloader(x, y , mini_batch, transform_func=None):
         # 32列作为图片特征，
         # print(x.shape, y.shape)
         # 将数据放到TrainSet中处理，组装测试样本和目标值
-        trainset  = TrainSet(x, y)
+        if transform_func != None:
+            trainset  = TrainSet(x, y, transform=transform_func)
+        else:
+            trainset = TrainSet(x, y)
         # batch_size=3: 每次迭代的样本为3，shuffle=True:随机打乱， DataLoader将数据变成可迭代的对象
         # drop_last=true, 如果数据集大小不能被batch_size整除，则默认删除最后一个，不然传入全连接层会报错
         trainloader = DataLoader(trainset, batch_size=mini_batch, shuffle=True, drop_last=True)
@@ -88,6 +91,5 @@ def regularization_loss(model, weight_decay, p):
 
 if __name__=='__main__':
     a, b = load_mnist('../dataset/fashion_mnist', 't10k')
-    x = a[0]
-    print(x)
+    print(a.shape, b.shape)
 

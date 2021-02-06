@@ -8,12 +8,21 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+transform_func = transforms.Compose(
+    [transforms.RandomHorizontalFlip(),
+     transforms.RandomGrayscale(),
+     transforms.ToTensor()])
 
-def load_data():
+def load_data(cv=True):
     train_x, train_y = load_mnist('../dataset/fashion_mnist', kind='train')
     test_x, test_y = load_mnist('../dataset/fashion_mnist', kind='t10k')
+    test_data = set_dataloader(test_x, test_y, 1000)
+    if cv == True:
+        X_train, X_valid, y_train, y_valid = train_test_split(np.array(train_x), np.array(train_y), test_size=0.1,
+                                                              stratify=train_y, random_state=1)
+        train_data = set_dataloader(X_train, y_train, 800, transform_func=transform_func)
+        return train_data, test_data, torch.tensor(X_valid), torch.tensor(y_valid)
     train_data = set_dataloader(train_x, train_y, 1000)
-    test_data = set_dataloader(test_x, test_y, 10000)
     return train_data, test_data
 
 
@@ -41,25 +50,32 @@ class CnnNet(nn.Module):
     def __init__(self):
         super(CnnNet, self).__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(1, 48, 5),
+            nn.Conv2d(1, 60, 5),
+            # 随机丢弃50%神经元
+            # nn.Dropout2d(0.5),
+            # 对channel做归一化处理
+            nn.BatchNorm2d(60),
             nn.ReLU(),
             nn.MaxPool2d(2)
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(48, 128, 5),
+            nn.Conv2d(60, 240, 5),
+            # nn.Dropout2d(0.6),
+            # nn.BatchNorm2d(240),
             nn.ReLU(),
             nn.MaxPool2d(2)
         )
         self.fc = nn.Sequential(
-            nn.Linear(2048, 540),
+            nn.Linear(3840, 640),
+            # nn.Dropout2d(0.6),
             nn.ReLU(),
-            nn.Linear(540, 10)
+            nn.Linear(640, 10)
         )
 
     def forward(self, x):
         output = self.conv1(x)
         output = self.conv2(output)
-        output = output.flatten(1,-1)
+        output = output.flatten(1, -1)
         output = self.fc(output)
         return output
 
@@ -67,11 +83,12 @@ class CnnNet(nn.Module):
 class CnnModel(CnnNet):
     def __init__(self):
         super(CnnModel, self).__init__()
-        self.epoch = 50
+        self.epoch = 15
 
-    def model_train(self, inputdata, path, lr=0.0003, cv=True):
+    def model_train(self, inputdata, path, lr=0.03, X_valid=None, y_valid=None, cv=True):
         loss = nn.CrossEntropyLoss().to(device)
-        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        # optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        optimizer = torch.optim.SGD(self.parameters(), lr=lr, momentum=0.8)
         epoch_ls = []
         train_loss_ls = []
         cv_loss_ls = []
@@ -84,15 +101,7 @@ class CnnModel(CnnNet):
             cv_loss_cal = 0
             cv_total = 0
             for raw, (images, labels) in enumerate(inputdata):
-                # images = transforms.functional.to_tensor
                 X_train, y_train = images.to(device), labels.to(device)
-                if cv == True:
-                    X_train, X_valid, y_train, y_valid = train_test_split(np.array(X_train), np.array(y_train), test_size=0.1,
-                                                                     stratify=y_train, random_state=1)
-                    X_train = torch.tensor(X_train).to(device)
-                    X_valid = torch.tensor(X_valid).to(device)
-                    y_train = torch.tensor(y_train).to(device)
-                    y_valid = torch.tensor(y_valid).to(device)
                 optimizer.zero_grad()
                 outputs = self(X_train)
                 l = loss(outputs, y_train)
@@ -107,8 +116,11 @@ class CnnModel(CnnNet):
                 if cv == True:
                 # 验证集结果输出
                     self.eval() # 让模型变成预测模式
+                    X_valid = X_valid.to(device)
+                    y_valid = y_valid.to(device)
                     cv_outputs = self(X_valid)
                     cv_loss = loss(cv_outputs, y_valid)
+                    # cv_loss = loss(cv_outputs, y_valid) + regularization_loss(self, 0.03, 2).to(device)
                     cv_outputs = torch.max(cv_outputs, 1)[1]
                     cv_loss_cal += cv_loss.item()
                     cv_correct += (cv_outputs == y_valid).sum().item()
@@ -130,7 +142,8 @@ class CnnModel(CnnNet):
                 cv_loss_ls.append(cv_loss_cal/10)
                 epoch_ls.append(epoch)
                 # 画loss曲线
-                train_valid_plot(epoch_ls, train_loss_ls, cv_loss_ls)
+                if (epoch % 5 == 4) or (epoch == (self.epoch - 1)):
+                    train_valid_plot(epoch_ls, train_loss_ls, cv_loss_ls)
 
         torch.save({
             'epoch': epoch,
@@ -144,7 +157,7 @@ class CnnModel(CnnNet):
         model = CnnModel()
         checkpoint = torch.load(model_file)
         model.load_state_dict(checkpoint['model_state_dict'])
-        loss = model['loss']
+        loss = checkpoint['loss']
         #  查看模型参数
         for param in model.state_dict():
             print('参数: %s, 大小：%s' % (param, model.state_dict()[param].size()))
@@ -155,19 +168,20 @@ class CnnModel(CnnNet):
         with torch.no_grad():
             for (images, labels) in inputdata:
                 outputs = model(images)
-                print(outputs)
                 l = loss(outputs, labels)
-                total = l.item()
+                total_loss += l.item()
                 predict_label = torch.max(outputs, 1)[1]
                 correct_num = (labels == predict_label).sum().item()
                 correct += correct_num
                 total += labels.size()[0]
-            print('预测准确率：%.4f' %(correct/total))
+            print('测试集的loss: %.4f, 预测准确率：%.4f' %(total_loss/10, correct/total))
 
 
-if __name__=='__main__':
-    train_data, test_data = load_data()
+if __name__ == '__main__':
+    train_data, test_data, x_valid, y_valid = load_data(cv=True)
     # 训练阶段
-    model = CnnModel().to(device).model_train(train_data, './model_file/model4.pkl', cv=True)
+    model = CnnModel().to(device).model_train(train_data, './model_file/model8-2.pkl', X_valid=x_valid, y_valid=y_valid, cv=True)
     # 推理阶段
-    # CnnModel().to(device).model_test(test_data, './model_file/model4.pkl')
+    # CnnModel().to(device).model_test(test_data, './model_file/model8-2.pkl'):wq
+
+
