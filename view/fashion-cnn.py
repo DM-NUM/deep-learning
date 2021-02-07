@@ -5,13 +5,14 @@ import torchvision.transforms as transforms
 import torchvision
 import arrow
 import numpy as np
+import gzip
 from sklearn.model_selection import train_test_split
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 transform_func = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(), # 随机水平翻转
-        transforms.RandomVerticalFlip(p=0.5), # 随机垂直翻转
+        # transforms.RandomVerticalFlip(p=0.5), # 随机垂直翻转
         # transforms.RandomRotation((30, 70), resample=False, expand=False, center=None), #随机旋转角度
         # transforms.RandomCrop(size=16, padding=6), # 图片重新裁剪转化
         transforms.ToTensor()
@@ -89,7 +90,7 @@ class CnnNet(nn.Module):
 class CnnModel(CnnNet):
     def __init__(self):
         super(CnnModel, self).__init__()
-        self.epoch = 25
+        self.epoch = 24
 
     def model_train(self, inputdata, path, lr=0.03, X_valid=None, y_valid=None, cv=True):
         loss = nn.CrossEntropyLoss().to(device)
@@ -186,8 +187,8 @@ class CnnModel(CnnNet):
 if __name__ == '__main__':
     train_data, test_data, x_valid, y_valid = load_data(cv=True)
     # 训练阶段
-    model = CnnModel().to(device).model_train(train_data, './model_file/model8-2.pkl', X_valid=x_valid, y_valid=y_valid, cv=True)
+    # model = CnnModel().to(device).model_train(train_data, './model_file/model8-2.pkl', X_valid=x_valid, y_valid=y_valid, cv=True)
     # 推理阶段
-    # CnnModel().to(device).model_test(test_data, './model_file/model8-2.pkl')
+    CnnModel().to(device).model_test(test_data, './model_file/model8-2.pkl')
 
 
