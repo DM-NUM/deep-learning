@@ -9,48 +9,54 @@ from sklearn.model_selection import train_test_split
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 transform_func = transforms.Compose(
-    [transforms.RandomHorizontalFlip(),
-     transforms.RandomGrayscale(),
-     transforms.ToTensor()])
+    [
+        transforms.RandomHorizontalFlip(), # 随机水平翻转
+        transforms.RandomVerticalFlip(p=0.5), # 随机垂直翻转
+        # transforms.RandomRotation((30, 70), resample=False, expand=False, center=None), #随机旋转角度
+        # transforms.RandomCrop(size=16, padding=6), # 图片重新裁剪转化
+        transforms.ToTensor()
+    ])
+
 
 def load_data(cv=True):
     train_x, train_y = load_mnist('../dataset/fashion_mnist', kind='train')
     test_x, test_y = load_mnist('../dataset/fashion_mnist', kind='t10k')
-    test_data = set_dataloader(test_x, test_y, 1000)
+    test_x = torch.from_numpy(test_x).float().div(255)
+    test_data = set_dataloader(test_x, test_y, 1000, transform_func=None)
     if cv == True:
         X_train, X_valid, y_train, y_valid = train_test_split(np.array(train_x), np.array(train_y), test_size=0.1,
                                                               stratify=train_y, random_state=1)
         train_data = set_dataloader(X_train, y_train, 800, transform_func=transform_func)
-        return train_data, test_data, torch.tensor(X_valid), torch.tensor(y_valid)
+        return train_data, test_data, torch.tensor(X_valid).float().div(255), torch.tensor(y_valid).long()
     train_data = set_dataloader(train_x, train_y, 1000)
     return train_data, test_data
 
 
-def test():
-    transform = transforms.Compose(
-        [
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomGrayscale(),
-            transforms.ToTensor()])
-
-    transform1 = transforms.Compose(
-        [
-            transforms.ToTensor()])
-    trainset = torchvision.datasets.FashionMNIST(root='./data', train=True,
-                                                 download=True, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=60000,
-                                              shuffle=True, num_workers=2)
-    for i, (images,label) in enumerate(trainloader):
-        print(images.size())
-        print(label.size())
-    return trainloader
+# def test():
+#     transform = transforms.Compose(
+#         [
+#             transforms.RandomHorizontalFlip(),
+#             transforms.RandomGrayscale(),
+#             transforms.ToTensor()])
+#
+#     transform1 = transforms.Compose(
+#         [
+#             transforms.ToTensor()])
+#     trainset = torchvision.datasets.FashionMNIST(root='./data', train=True,
+#                                                  download=True, transform=transform)
+#     trainloader = torch.utils.data.DataLoader(trainset, batch_size=60000,
+#                                               shuffle=True, num_workers=2)
+#     for i, (images,label) in enumerate(trainloader):
+#         print(images.size())
+#         print(label.size())
+#     return trainloader
 
 
 class CnnNet(nn.Module):
     def __init__(self):
         super(CnnNet, self).__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(1, 60, 5),
+            nn.Conv2d(1, 60, 5, padding=2),
             # 随机丢弃50%神经元
             # nn.Dropout2d(0.5),
             # 对channel做归一化处理
@@ -59,14 +65,14 @@ class CnnNet(nn.Module):
             nn.MaxPool2d(2)
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(60, 240, 5),
+            nn.Conv2d(60, 240, 5, padding=2),
             # nn.Dropout2d(0.6),
             # nn.BatchNorm2d(240),
             nn.ReLU(),
             nn.MaxPool2d(2)
         )
         self.fc = nn.Sequential(
-            nn.Linear(3840, 640),
+            nn.Linear(11760, 640),
             # nn.Dropout2d(0.6),
             nn.ReLU(),
             nn.Linear(640, 10)
@@ -83,7 +89,7 @@ class CnnNet(nn.Module):
 class CnnModel(CnnNet):
     def __init__(self):
         super(CnnModel, self).__init__()
-        self.epoch = 15
+        self.epoch = 25
 
     def model_train(self, inputdata, path, lr=0.03, X_valid=None, y_valid=None, cv=True):
         loss = nn.CrossEntropyLoss().to(device)
@@ -182,6 +188,6 @@ if __name__ == '__main__':
     # 训练阶段
     model = CnnModel().to(device).model_train(train_data, './model_file/model8-2.pkl', X_valid=x_valid, y_valid=y_valid, cv=True)
     # 推理阶段
-    # CnnModel().to(device).model_test(test_data, './model_file/model8-2.pkl'):wq
+    # CnnModel().to(device).model_test(test_data, './model_file/model8-2.pkl')
 
 
